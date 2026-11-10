@@ -29,12 +29,39 @@ NVIDIA GPU, change that line to `torch==2.14.1` to get the CPU build.
 The virtual environment is kept outside the repo so it isn't committed or synced
 to cloud storage.
 
+## Data
+
+```powershell
+python -m movie_rec.data
+```
+
+This downloads MovieLens 1M into `data/raw/`, then writes cleaned files to
+`data/processed/`:
+
+- User and movie IDs are remapped to contiguous 0-based indices so they can be
+  used directly as embedding rows. The 177 listed movies with no ratings are dropped,
+  leaving 3,706 movies.
+- Each user's ratings are split **by time**: the oldest 80% go to training, the
+  next 10% to validation, and the most recent 10% to test. This mirrors real use,
+  where the model predicts what a user will rate next, and avoids training on a
+  user's future ratings. Every user appears in all three splits.
+- The few validation/test ratings for movies that never appear in training
+  (18 and 36 ratings) are dropped, because those movies have no trained embedding.
+- Genres are kept as a multi-hot feature (18 genres) for the NeuMF model.
+
+| Split      | Ratings |
+|------------|--------:|
+| Train      | 800,309 |
+| Validation |  99,932 |
+| Test       |  99,914 |
+
 ## Project layout
 
 ```
 movie_rec/          Python package with all project code
   config.py         paths, random seed, device selection
   check_env.py      verifies library versions and GPU training
+  data.py           download, cleaning, time-based split, PyTorch data loaders
 data/               downloaded and processed datasets (not committed)
 models/             trained model checkpoints (not committed)
 ```
