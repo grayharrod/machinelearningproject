@@ -55,6 +55,38 @@ This downloads MovieLens 1M into `data/raw/`, then writes cleaned files to
 | Validation |  99,932 |
 | Test       |  99,914 |
 
+## Training
+
+```powershell
+python -m movie_rec.train --model mf
+```
+
+Trains with Adam on mean squared error, checks validation RMSE after every epoch,
+stops early once it stops improving for 3 epochs, and keeps the best weights.
+Saves the model to `models/<name>.pt` and the metrics and a training curve to
+`results/`.
+
+### Baseline: matrix factorization
+
+Predicted rating = global mean + user bias + movie bias + (user vector · movie vector),
+with 32-dimensional vectors (321,619 parameters). About 6 seconds per epoch on an
+RTX 3050.
+
+| Model                                 | Weight decay | Val RMSE | Test RMSE |
+|---------------------------------------|-------------:|---------:|----------:|
+| Always predict the training mean      |            - |        - |    1.1654 |
+| Matrix factorization                  |            0 |   0.8615 |    0.8818 |
+| Matrix factorization (**default**)    |         1e-5 |   0.8588 |    0.8793 |
+| Matrix factorization                  |         1e-4 |   0.8938 |    0.9159 |
+
+Without regularization the model starts overfitting after about 7 epochs
+(training error keeps falling while validation error rises). A weight decay of
+1e-5 delays that slightly and gives the best validation score; 1e-4 is too strong
+and underfits. Test RMSE is higher than validation RMSE because the test ratings
+are each user's most recent ones, further from the training period.
+
+![Matrix factorization training curve](results/mf_curve.png)
+
 ## Project layout
 
 ```
@@ -62,6 +94,9 @@ movie_rec/          Python package with all project code
   config.py         paths, random seed, device selection
   check_env.py      verifies library versions and GPU training
   data.py           download, cleaning, time-based split, PyTorch data loaders
+  models.py         model architectures
+  train.py          training loop, early stopping, RMSE evaluation
+results/            metrics (JSON) and training curves for each run
 data/               downloaded and processed datasets (not committed)
 models/             trained model checkpoints (not committed)
 ```
