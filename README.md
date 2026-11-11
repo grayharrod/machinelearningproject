@@ -87,6 +87,55 @@ are each user's most recent ones, further from the training period.
 
 ![Matrix factorization training curve](results/mf_curve.png)
 
+### Main model: NeuMF with genres
+
+```powershell
+python -m movie_rec.train --model neumf
+```
+
+Neural Collaborative Filtering (He et al., 2017), adapted to predict star ratings.
+Two branches look at each user-movie pair, each with its own 32-dimensional vectors:
+
+- **GMF branch:** element-wise product of the user and movie vectors. Matrix
+  factorization adds these products up with equal weight; here a learned layer
+  weights each dimension.
+- **MLP branch:** the user vector, movie vector, and an 8-dimensional embedding of
+  the movie's genres go through hidden layers of 64, 32, and 16 units (ReLU,
+  dropout 0.5), which can learn non-linear interactions a dot product can't.
+
+A final linear layer combines the two branches, and the global, user, and movie
+biases from matrix factorization are kept. 640,972 parameters, about 11 seconds
+per epoch.
+
+| Variant                                              | Val RMSE | Test RMSE |
+|------------------------------------------------------|---------:|----------:|
+| Matrix factorization baseline                        |   0.8588 |    0.8793 |
+| NeuMF, dropout 0.2                                   |   0.8675 |    0.8859 |
+| NeuMF, dropout 0.5 (**default**)                     |   0.8655 |    0.8853 |
+| NeuMF, dropout 0.2, no genres                        |   0.8704 |    0.8907 |
+| NeuMF, dropout 0.2, 16-dimensional vectors           |   0.8679 |    0.8869 |
+| NeuMF, dropout 0.2, weight decay 3e-5                |   0.8772 |    0.8968 |
+| NeuMF initialized from MF, fine-tuned (lr 1e-4)      |   0.8599 |    0.8803 |
+| NeuMF initialized from MF, fine-tuned (lr 3e-4)      |   0.8620 |    0.8824 |
+| NeuMF initialized from MF, MF weights frozen         |   0.8657 |    0.8858 |
+
+**NeuMF does not beat matrix factorization on rating accuracy.** It has twice as
+many parameters and overfits sooner (best epoch 5 vs. 10). Genres do help: removing
+them makes every metric worse. This matches Rendle et al. (2020), *Neural
+Collaborative Filtering vs. Matrix Factorization Revisited*, which found that a
+well-tuned dot-product model usually beats NeuMF.
+
+Following the original NeuMF paper, I also tried pretraining: `--init-from
+models/mf.pt` copies the trained matrix factorization vectors and biases into NeuMF
+so it starts with exactly the baseline's predictions (val RMSE 0.8588), then
+fine-tunes. Every fine-tuning setup made validation RMSE slightly worse, even with
+the copied weights frozen (`--freeze-pretrained`). At its best epoch matrix
+factorization already fits the training data closely (training RMSE about 0.74),
+so the remaining training error is mostly noise and the extra network learns that
+noise instead of real patterns.
+
+![NeuMF training curve](results/neumf_curve.png)
+
 ## Project layout
 
 ```
@@ -94,7 +143,7 @@ movie_rec/          Python package with all project code
   config.py         paths, random seed, device selection
   check_env.py      verifies library versions and GPU training
   data.py           download, cleaning, time-based split, PyTorch data loaders
-  models.py         model architectures
+  models.py         matrix factorization and NeuMF architectures
   train.py          training loop, early stopping, RMSE evaluation
 results/            metrics (JSON) and training curves for each run
 data/               downloaded and processed datasets (not committed)

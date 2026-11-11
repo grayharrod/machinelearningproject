@@ -1,0 +1,66 @@
+{
+  "name": "neumf",
+  "hparams": {
+    "model": "neumf",
+    "name": null,
+    "dim": 32,
+    "mlp_layers": "64,32,16",
+    "genre_dim": 8,
+    "dropout": 0.5,
+    "init_from": null,
+    "freeze_pretrained": false,
+    "epochs": 30,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "batch_size": 1024,
+    "patience": 3
+  },
+  "n_params": 640972,
+  "train_seconds": 92.6,
+  "best_epoch": 5,
+  "best_val_rmse": 0.8655452956218056,
+  "test_rmse": 0.8852831856297677,
+  "mean_baseline_test_rmse": 1.165373054814894,
+  "history": [
+    {
+      "epoch": 1,
+      "train_rmse": 0.9623056498985766,
+      "val_rmse": 0.9045613877002355
+    },
+    {
+      "epoch": 2,
+      "train_rmse": 0.88778139718835,
+      "val_rmse": 0.8840096159751027
+    },
+    {
+      "epoch": 3,
+      "train_rmse": 0.8585438157700286,
+      "val_rmse": 0.8748901066536207
+    },
+    {
+      "epoch": 4,
+      "train_rmse": 0.83428126118097,
+      "val_rmse": 0.8682569296763767
+    },
+    {
+      "epoch": 5,
+      "train_rmse": 0.8097092249150818,
+      "val_rmse": 0.8655452956218056
+    },
+    {
+      "epoch": 6,
+      "train_rmse": 0.7851579089671371,
+      "val_rmse": 0.866090917892079
+    },
+    {
+      "epoch": 7,
+      "train_rmse": 0.761990652957473,
+      "val_rmse": 0.8700486866525732
+    },
+    {
+      "epoch": 8,
+      "train_rmse": 0.7424008019882228,
+      "val_rmse": 0.8770743001185315
+    }
+  ]
+}
