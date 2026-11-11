@@ -17,7 +17,7 @@ from torch.nn import functional as F
 
 from movie_rec.config import MODELS_DIR, PROJECT_ROOT, get_device, set_seed
 from movie_rec.data import MovieLensData, load_processed, make_loader
-from movie_rec.models import MatrixFactorization
+from movie_rec.models import MatrixFactorization, NeuMF
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -26,11 +26,22 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 MIN_RATING, MAX_RATING = 1.0, 5.0
 
 
-def build_model(name: str, data: MovieLensData, dim: int) -> nn.Module:
-    if name == "mf":
-        global_mean = float(data.train["rating"].mean())
-        return MatrixFactorization(data.n_users, data.n_movies, dim=dim, global_mean=global_mean)
-    raise ValueError(f"Unknown model: {name}")
+def build_model(args: argparse.Namespace, data: MovieLensData) -> nn.Module:
+    global_mean = float(data.train["rating"].mean())
+    if args.model == "mf":
+        return MatrixFactorization(data.n_users, data.n_movies, dim=args.dim, global_mean=global_mean)
+    if args.model == "neumf":
+        return NeuMF(
+            data.n_users,
+            data.n_movies,
+            genres=data.genre_matrix(),
+            dim=args.dim,
+            mlp_layers=tuple(int(n) for n in args.mlp_layers.split(",")),
+            genre_dim=args.genre_dim,
+            dropout=args.dropout,
+            global_mean=global_mean,
+        )
+    raise ValueError(f"Unknown model: {args.model}")
 
 
 @torch.no_grad()
@@ -61,7 +72,8 @@ def fit(
 
     Returns per-epoch history; the model is left holding the best-validation weights.
     """
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.Adam(trainable, lr=lr, weight_decay=weight_decay)
     history = []
     best_val, best_state, bad_epochs = math.inf, None, 0
 
@@ -112,9 +124,15 @@ def save_curve(history: list[dict], title: str, path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=["mf"], default="mf")
+    parser.add_argument("--model", choices=["mf", "neumf"], default="mf")
     parser.add_argument("--name", help="run name for saved files (defaults to the model name)")
     parser.add_argument("--dim", type=int, default=32, help="embedding size")
+    parser.add_argument("--mlp-layers", default="64,32,16", help="NeuMF hidden layer sizes")
+    parser.add_argument("--genre-dim", type=int, default=8, help="NeuMF genre embedding size (0 = no genres)")
+    parser.add_argument("--dropout", type=float, default=0.5, help="NeuMF dropout between hidden layers")
+    parser.add_argument("--init-from", help="NeuMF only: path to a trained mf checkpoint to start from")
+    parser.add_argument("--freeze-pretrained", action="store_true",
+                        help="with --init-from: keep the copied matrix factorization weights fixed")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
@@ -132,9 +150,16 @@ def main() -> None:
     mean_rmse = float(np.sqrt(np.mean((data.test["rating"] - global_mean) ** 2)))
     print(f"Reference: always predicting the training mean ({global_mean:.3f}) gives test RMSE {mean_rmse:.4f}\n")
 
-    model = build_model(args.model, data, args.dim).to(device)
+    model = build_model(args, data).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Model has {n_params:,} parameters")
+    if args.init_from:
+        model.init_from_mf(torch.load(args.init_from, map_location=device)["state_dict"])
+        print(f"Initialized from {args.init_from}: val RMSE before fine-tuning {rmse(model, data.val, device):.4f}")
+        if args.freeze_pretrained:
+            model.freeze_mf_parts()
+            n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print(f"Froze matrix factorization weights; {n_trainable:,} parameters left to train")
 
     start = time.perf_counter()
     history = fit(model, data, device, args.epochs, args.lr, args.weight_decay, args.batch_size, args.patience)
