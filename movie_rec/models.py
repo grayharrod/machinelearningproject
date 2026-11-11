@@ -108,13 +108,25 @@ class NeuMF(nn.Module):
             param.requires_grad_(False)
 
     def forward(self, users: torch.Tensor, movies: torch.Tensor) -> torch.Tensor:
-        gmf = self.user_gmf(users) * self.movie_gmf(movies)
+        return self.score(
+            self.user_gmf(users), self.user_mlp(users), self.user_bias(users).squeeze(-1), movies
+        )
 
-        mlp_inputs = [self.user_mlp(users), self.movie_mlp(movies)]
+    def score(
+        self,
+        user_gmf: torch.Tensor,
+        user_mlp: torch.Tensor,
+        user_bias: torch.Tensor,
+        movies: torch.Tensor,
+    ) -> torch.Tensor:
+        """Score movies from user vectors directly, so a new user who isn't in the
+        embedding tables can be scored with vectors learned on the fly."""
+        gmf = user_gmf * self.movie_gmf(movies)
+
+        mlp_inputs = [user_mlp, self.movie_mlp(movies)]
         if self.use_genres:
             mlp_inputs.append(self.genre_proj(self.genres[movies]))
         mlp = self.mlp(torch.cat(mlp_inputs, dim=-1))
 
         interaction = self.output(torch.cat([gmf, mlp], dim=-1)).squeeze(-1)
-        bias = self.user_bias(users).squeeze(-1) + self.movie_bias(movies).squeeze(-1)
-        return self.global_bias + bias + interaction
+        return self.global_bias + user_bias + self.movie_bias(movies).squeeze(-1) + interaction
