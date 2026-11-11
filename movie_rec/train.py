@@ -44,6 +44,17 @@ def build_model(args: argparse.Namespace, data: MovieLensData) -> nn.Module:
     raise ValueError(f"Unknown model: {args.model}")
 
 
+def load_model(path, data: MovieLensData, device: torch.device) -> nn.Module:
+    """Rebuild a model from a checkpoint saved by this script and load its weights."""
+    checkpoint = torch.load(path, map_location=device)
+    defaults = vars(build_parser().parse_args([]))
+    args = argparse.Namespace(**{**defaults, **checkpoint["hparams"]})
+    model = build_model(args, data).to(device)
+    model.load_state_dict(checkpoint["state_dict"])
+    model.eval()
+    return model
+
+
 @torch.no_grad()
 def predict(model: nn.Module, ratings: pd.DataFrame, device: torch.device, batch_size: int = 8192) -> np.ndarray:
     model.eval()
@@ -122,7 +133,7 @@ def save_curve(history: list[dict], title: str, path) -> None:
     plt.close()
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", choices=["mf", "neumf"], default="mf")
     parser.add_argument("--name", help="run name for saved files (defaults to the model name)")
@@ -138,13 +149,17 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--patience", type=int, default=3)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     name = args.name or args.model
 
     set_seed()
     device = get_device()
     data = load_processed()
-    print("Training '{name}' on {device} with {len(data.train):,} ratings")
+    print(f"Training '{name}' on {device} with {len(data.train):,} ratings")
 
     global_mean = data.train["rating"].mean()
     mean_rmse = float(np.sqrt(np.mean((data.test["rating"] - global_mean) ** 2)))
