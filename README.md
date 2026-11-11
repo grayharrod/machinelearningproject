@@ -136,6 +136,75 @@ noise instead of real patterns.
 
 ![NeuMF training curve](results/neumf_curve.png)
 
+## Ranking evaluation
+
+```powershell
+python -m movie_rec.train_implicit   # trains neumf_implicit (about 6 minutes)
+python -m movie_rec.evaluate         # compares every model (about 11 minutes)
+```
+
+RMSE only measures how close predicted stars are. What a user actually sees is a
+top-10 list, so each model is also evaluated as a recommender:
+
+- For every user, score **all** movies they haven't rated yet and take the top 10.
+  Ranking against the full catalog avoids the misleading results of ranking against
+  ~100 sampled movies (Krichene & Rendle, 2020).
+- A recommendation is a **hit** if the user rated that movie 4 or 5 stars in the
+  held-out period (validation or test). Users with no 4-5 star ratings in that
+  period are skipped, leaving 5,805 validation and 5,772 test users.
+- **HR@10:** share of users with at least one hit in their top 10.
+  **Precision@10:** share of the 10 recommendations that are hits.
+  **NDCG@10:** like precision, but hits near the top count more.
+  **Coverage:** share of the catalog that appears in anyone's top 10.
+
+| Test set (5,772 users)                   | RMSE   | HR@10  | Prec@10 | NDCG@10 | Coverage |
+|------------------------------------------|-------:|-------:|--------:|--------:|---------:|
+| Popularity (same list for everyone)      |      - | 0.2635 |  0.0428 |  0.0556 |     4.0% |
+| Matrix factorization                     | 0.8793 | 0.2514 |  0.0396 |  0.0538 |    22.3% |
+| Matrix factorization + popularity (α=1.5)| 0.8793 | 0.2997 |  0.0516 |  0.0690 |     6.4% |
+| NeuMF (ratings)                          | 0.8853 | 0.2450 |  0.0380 |  0.0515 |    21.3% |
+| NeuMF (ratings) + popularity (α=1.0)     | 0.8853 | 0.2995 |  0.0515 |  0.0693 |     7.8% |
+| NeuMF (implicit)                         |      - | 0.3136 |  0.0485 |  0.0698 |    37.7% |
+| **NeuMF (implicit) + popularity (α=0.75)** |    - | **0.3382** | **0.0554** | **0.0788** | 22.2% |
+
+### What happened and how it was fixed
+
+**1. The rating models lose to "recommend the most popular movies."** Both rating
+models score below the popularity baseline on every ranking metric. This is a known
+effect (Cremonesi et al., 2010): a model trained to predict stars estimates how much
+a user would like a movie *if they watched it*, so ranking by predicted stars pushes
+up obscure films a handful of people loved. A hit also requires the user to actually
+*watch* the movie, which popularity captures.
+
+**2. Blending in popularity.** Ranking by
+`predicted rating + α · log(1 + number of ratings)` combines "would they like it"
+with "would they watch it." α is chosen on the validation set (grid from 0 to 2),
+then applied unchanged to test. This lifts matrix factorization's test NDCG@10 from
+0.054 to 0.069, beating popularity by 24%, at the cost of lower coverage.
+
+**3. Training NeuMF for ranking instead of ratings.** NeuMF was originally designed
+for implicit feedback: predicting *which* movies a user interacts with, not how many
+stars they give. `train_implicit.py` trains it that way: each of a user's 4-5 star
+training ratings is a positive, 4 random movies per positive are negatives
+(resampled every epoch), the loss is binary cross-entropy, and early stopping uses
+validation NDCG@10. On its own it beats every rating model on hit rate while
+covering 38% of the catalog.
+
+| Implicit NeuMF positives          | Val NDCG@10 | Test HR@10 | Test NDCG@10 |
+|-----------------------------------|------------:|-----------:|-------------:|
+| 4-5 star ratings (**default**)    |      0.0799 |     0.3136 |       0.0698 |
+| All ratings                       |      0.0679 |     0.2691 |       0.0551 |
+
+Using every rating as a positive is worse: it teaches the model to recommend movies
+people watched and disliked.
+
+**4. Final model.** Implicit NeuMF plus a light popularity blend (α=0.75) is the
+best on every ranking metric: test NDCG@10 of 0.0788 is **42% higher than
+popularity** and 14% higher than the best rating model, while still recommending
+from 22% of the catalog (vs. 4% for popularity). This is the model used by the app.
+
+![Implicit NeuMF training curve](results/neumf_implicit_curve.png)
+
 ## Project layout
 
 ```
@@ -144,7 +213,9 @@ movie_rec/          Python package with all project code
   check_env.py      verifies library versions and GPU training
   data.py           download, cleaning, time-based split, PyTorch data loaders
   models.py         matrix factorization and NeuMF architectures
-  train.py          training loop, early stopping, RMSE evaluation
+  train.py          rating-prediction training loop, early stopping, RMSE evaluation
+  train_implicit.py NeuMF trained for ranking with negative sampling
+  evaluate.py       top-10 ranking metrics, popularity baseline and blending
 results/            metrics (JSON) and training curves for each run
 data/               downloaded and processed datasets (not committed)
 models/             trained model checkpoints (not committed)
