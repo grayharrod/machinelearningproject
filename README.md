@@ -205,6 +205,40 @@ from 22% of the catalog (vs. 4% for popularity). This is the model used by the a
 
 ![Implicit NeuMF training curve](results/neumf_implicit_curve.png)
 
+## Web app
+
+```powershell
+python -m movie_rec.app      # then open http://127.0.0.1:7860
+```
+
+Requires `models/neumf_implicit.pt` (from `python -m movie_rec.train_implicit`).
+Built with Gradio; two tabs:
+
+**Recommend for me (cold start).** Pick movies you liked and, optionally, movies you
+disliked and genres to restrict to. You aren't one of the 6,040 users the model was
+trained on, so the app learns vectors for you on the spot ("fold-in"):
+
+- The trained network is frozen. Only a new user's GMF vector, MLP vector, and bias
+  are optimized: 100 Adam steps with the same objective used in training (liked
+  movies are positives; disliked movies plus 4 random movies per like are
+  negatives), with an L2 penalty pulling the vectors toward the average user so a
+  couple of picks don't produce extreme results.
+- This takes about 0.25 seconds on the GPU. A first version took 3.3 seconds
+  because each of its 200 steps made separate small GPU calls; drawing all random
+  negatives in one batch and halving the steps (with a higher learning rate) made
+  it 13x faster with the same recommendations.
+- Each recommendation shows **"Because you liked"**: the picked movie whose learned
+  movie vector is most similar (cosine similarity) to the recommended one.
+- A **popularity weight** slider (default 0.75, tuned on validation) trades niche
+  picks for mainstream ones live.
+
+**Check against a real user.** Enter a MovieLens user ID to see their favorite movies
+from training and the model's top 10. The **"Rated 4-5 stars later?"** column marks
+recommendations the user really did rate highly in the held-out test period, which
+the model never saw. The example users (2873, 2247, 1820, 3412) are ones where the
+model gets 5-7 of the top 10 right; user 1 gets 0, which is typical of the
+long tail behind the 0.34 average hit rate.
+
 ## Project layout
 
 ```
@@ -216,6 +250,8 @@ movie_rec/          Python package with all project code
   train.py          rating-prediction training loop, early stopping, RMSE evaluation
   train_implicit.py NeuMF trained for ranking with negative sampling
   evaluate.py       top-10 ranking metrics, popularity baseline and blending
+  recommender.py    fold-in for new users, top-10 lists, "because you liked"
+  app.py            Gradio web app
 results/            metrics (JSON) and training curves for each run
 data/               downloaded and processed datasets (not committed)
 models/             trained model checkpoints (not committed)
