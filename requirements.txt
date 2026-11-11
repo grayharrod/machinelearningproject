@@ -1,0 +1,9 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+torch==2.14.1+cu126
+numpy
+pandas
+matplotlib
+tqdm
+gradio
+truststore
